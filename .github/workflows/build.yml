@@ -1,0 +1,49 @@
+name: Build
+
+# Builds the unsigned APK on every push/PR, and publishes a GitHub Release
+# with it when a v* tag is pushed (e.g. v1.1.2).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # creating the release when a tag is pushed
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The hosted runner ships command-line tools and accepted licenses;
+      # only the two SDK parts build.sh needs have to be added.
+      - name: Install Android SDK parts
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Build unsigned APK
+        run: UNSIGNED=1 ./build.sh
+
+      - name: Upload artifact (kept 90 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: books-unsigned-apk
+          path: out/books-unsigned.apk
+          if-no-files-found: error
+
+      # A release per v* tag, with the APK attached and notes from the commits.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/books-unsigned.apk \
+            --title "Books $GITHUB_REF_NAME" --generate-notes
